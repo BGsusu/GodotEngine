@@ -1,0 +1,92 @@
+{
+  // ==========================================================================
+  // 可移植性说明(重要)
+  //
+  // 本文件不包含任何硬编码的绝对路径,clone 到别人机器上无需修改:
+  //   - 用 ${workspaceFolder} 定位仓库内的 build_and_run.bat
+  //   - VS 位置 / Python 版本 / MSVC 版本 / SDK 版本 全部由脚本自动探测
+  //   - 别人只需要按 build_and_run.bat 头部注释准备环境:
+  //       VS 2022(勾选"C++ 桌面开发") + Python 3.9+ 且 pip install scons
+  //
+  // 为什么不像官方文档那样直接写 "command": "scons":
+  //   scons 装在 Python 的 Scripts 目录,该目录通常不在 PATH 里。
+  //   交给 build_and_run.bat 统一处理,比在 json 里写死路径更省心。
+  //
+  // 构建系统仍然是官方的 SCons,只是把调用封装进了脚本。
+  // ==========================================================================
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cmd",
+      "args": ["/c", "\"${workspaceFolder}\\build_and_run.bat\" build-only"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$msCompile"],
+      "detail": "增量编译 dev 版编辑器 -> bin/godot.windows.editor.dev.x86_64.exe (新增/修改的 C++ 文件才会重编)"
+    },
+    {
+      "label": "Godot: 全量重编译 (rebuild)",
+      "type": "shell",
+      "command": "cmd",
+      "args": ["/c", "\"${workspaceFolder}\\build_and_run.bat\" rebuild build-only"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$msCompile"],
+      "detail": "先 scons --clean 再全量编译,耗时 10~20 分钟"
+    },
+    {
+      "label": "Godot: release 版编辑器",
+      "type": "shell",
+      "command": "cmd",
+      "args": ["/c", "\"${workspaceFolder}\\build_and_run.bat\" release build-only"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$msCompile"],
+      "detail": "optimize=speed,产物 bin/godot.windows.editor.x86_64.exe"
+    },
+    {
+      "label": "Godot: 导出模板 (debug)",
+      "type": "shell",
+      "command": "cmd",
+      "args": ["/c", "\"${workspaceFolder}\\build_and_run.bat\" template build-only"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$msCompile"],
+      "detail": "target=template_debug,用于导出游戏"
+    },
+    {
+      "label": "Godot: 清理构建产物 (clean)",
+      "type": "shell",
+      "command": "cmd",
+      "args": ["/c", "\"${workspaceFolder}\\build_and_run.bat\" clean"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Godot: 生成 compile_commands.json",
+      "type": "shell",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "set \"SCONS_OPTS=compiledb=yes compiledb_gen_only=yes\" && \"${workspaceFolder}\\build_and_run.bat\" build-only"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "只生成编译数据库给 IntelliSense 用,不真正编译。生成后 c_cpp_properties.json 会自动关联,代码跳转更准"
+    }
+  ]
+}

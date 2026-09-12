@@ -1,0 +1,55 @@
+{
+  // 说明: preLaunchTask 会在每次 F5 前先跑一次增量编译,避免调试到旧代码。
+  //       如果只想快速启动,把对应配置里的 "preLaunchTask" 删掉即可。
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Godot: 打开指定项目",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/godot.windows.editor.dev.x86_64.exe",
+      "args": ["--editor", "--path", "${input:projectPath}"],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "console": "internalConsole",
+      // Godot 自定义类型(String / Vector<T> / Array / Dictionary 等)的可视化描述,
+      // 不加这个,调试时 String 只能看到一堆内部字段,看不到字符串内容。
+      "visualizerFile": "${workspaceFolder}/platform/windows/godot.natvis",
+      "preLaunchTask": "build"
+    },
+    {
+      "name": "Godot: 编辑器 (项目管理器)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/godot.windows.editor.dev.x86_64.exe",
+      "args": ["--editor"],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "console": "internalConsole",
+      "visualizerFile": "${workspaceFolder}/platform/windows/godot.natvis",
+      "preLaunchTask": "build"
+    },
+    {
+      "name": "Godot: 运行项目 (不带编辑器)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/godot.windows.editor.dev.x86_64.exe",
+      "args": ["--path", "${input:projectPath}"],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "console": "internalConsole",
+      "visualizerFile": "${workspaceFolder}/platform/windows/godot.natvis",
+      "preLaunchTask": "build"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "projectPath",
+      "type": "promptString",
+      "description": "Godot 项目目录(绝对路径,例如 D:\\GodotProjects\\my_game)"
+    }
+  ]
+}

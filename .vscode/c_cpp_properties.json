@@ -1,0 +1,53 @@
+{
+  // ==========================================================================
+  // 可移植性说明(重要)
+  //
+  // 本文件不含任何机器相关的绝对路径,clone 到别人机器上直接可用。
+  // 刻意不写 "compilerPath" 和 "windowsSdkVersion":
+  //   MSVC 版本号和 VS 安装位置因机器而异(Community/BuildTools、14.4x/14.3x…),
+  //   写死会导致 IntelliSense 全线报错。交给 C/C++ 扩展自己探测更省心。
+  //
+  // 如果跳转/补全不够准,跑一次任务「Godot: 生成 compile_commands.json」,
+  // 然后把下面 includePath / defines / compilerPath 全部删掉,换成一行:
+  //     "compileCommands": "${workspaceFolder}/compile_commands.json"
+  // 那份是 SCons 实际下发给 cl.exe 的参数,比任何手写配置都准。
+  //
+  // 注意: cppStandard 必须是 c++17(不是 c++20)——
+  //   core/typedefs.h 里有 static_assert(__cplusplus >= 201703L, ...)。
+  // ==========================================================================
+  "version": 4,
+  "configurations": [
+    {
+      "name": "Win32",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/platform/windows"
+      ],
+      "defines": [
+        "_DEBUG",
+        "UNICODE",
+        "_UNICODE",
+        "TOOLS_ENABLED",
+        "DEBUG_ENABLED",
+        "DEV_ENABLED",
+        "TESTS_ENABLED",
+        "WINDOWS_ENABLED",
+        "WASAPI_ENABLED",
+        "WINMIDI_ENABLED",
+        "VULKAN_ENABLED",
+        "GLES3_ENABLED",
+        "D3D12_ENABLED",
+        "RD_ENABLED",
+        "TYPED_METHOD_BIND",
+        "WIN32",
+        "_WIN64",
+        "_WINDOWS",
+        "NOMINMAX",
+        "_CRT_SECURE_NO_WARNINGS"
+      ],
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "windows-msvc-x64"
+    }
+  ]
+}

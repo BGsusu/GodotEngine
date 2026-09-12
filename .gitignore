@@ -212,7 +212,15 @@ cscope.po.out
 *.swp
 
 # Visual Studio Code
-.vscode/
+# Ignore per-user settings under .vscode, but keep the shared build/debug
+# configuration so contributors get it on clone. Note that a negation for a
+# file inside an ignored directory has no effect, hence the ".vscode/*" form.
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
+!.vscode/settings.json
+!.vscode/extensions.json
 *.code-workspace
 .history/
 
