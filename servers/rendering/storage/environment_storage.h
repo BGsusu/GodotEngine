@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/templates/rid_owner.h"
+#include "core/variant/variant.h"
 #include "servers/rendering/rendering_server_enums.h"
 
 class RendererEnvironmentStorage {
@@ -90,6 +91,7 @@ private:
 		float max_value = 1.0;
 
 		// Fog
+		PackedFloat32Array analytic_fog;
 		bool fog_enabled = false;
 		RSE::EnvironmentFogMode fog_mode = RSE::EnvironmentFogMode::ENV_FOG_MODE_EXPONENTIAL;
 		Color fog_light_color = Color(0.518, 0.553, 0.608);
@@ -234,6 +236,8 @@ public:
 	TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
 
 	// Fog
+	void environment_set_analytic_fog(RID p_env, const PackedFloat32Array &p_parameters);
+	PackedFloat32Array environment_get_analytic_fog(RID p_env) const;
 	void environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode);
 	bool environment_get_fog_enabled(RID p_env) const;
 	RSE::EnvironmentFogMode environment_get_fog_mode(RID p_env) const;

@@ -943,6 +943,8 @@ layout(location = 10) in flat uint instance_index_interp;
 #include "../bicubic_filter_inc.glsl"
 #endif //USE_LIGHTMAP
 
+#include "../environment/analytic_fog_inc.glsl"
+
 #ifdef USE_MULTIVIEW
 #extension GL_EXT_multiview : enable
 #define ViewIndex gl_ViewIndex
@@ -1497,6 +1499,18 @@ void fragment_shader(in SceneData scene_data) {
 	// to maximize VGPR usage
 	// Draw "fixed" fog before volumetric fog to ensure volumetric fog can appear in front of the sky.
 
+	if (scene_data.analytic_fog[0].x > 0.5) {
+		mat4 fog_inv_view = transpose(mat4(scene_data.inv_view_matrix[0], scene_data.inv_view_matrix[1],
+				scene_data.inv_view_matrix[2], vec4(0.0, 0.0, 0.0, 1.0)));
+		vec3 fog_origin = fog_inv_view[3].xyz;
+#ifdef USE_MULTIVIEW
+		fog_origin += mat3(fog_inv_view) * scene_data.eye_offset[ViewIndex].xyz;
+#endif
+		vec3 fog_target = (fog_inv_view * vec4(vertex, 1.0)).xyz;
+		vec3 fog_delta = fog_target - fog_origin;
+		float fog_distance = length(fog_delta);
+		fog = analytic_fog_evaluate(fog_origin, fog_delta / max(fog_distance, 0.00001), fog_distance, scene_data.analytic_fog);
+	} else {
 	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_FOG)) {
 		fog = fog_process(vertex);
 		// Premultiply by opacity and convert opacity to transmittance to match volumetric fog.
@@ -1528,6 +1542,7 @@ void fragment_shader(in SceneData scene_data) {
 		}
 		fog = res;
 	}
+	} // Legacy ordinary/volumetric fog; analytic mode is an exclusive alternative.
 #else
 	// Premultiply by opacity and convert opacity to transmittance to match volumetric fog.
 	fog.rgb *= fog.a;

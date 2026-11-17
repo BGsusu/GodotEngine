@@ -5,11 +5,69 @@
 	</brief_description>
 	<description>
 		The [PhysicalSkyMaterial] uses the Preetham analytic daylight model to draw a sky based on physical properties. This results in a substantially more realistic sky than the [ProceduralSkyMaterial], but it is slightly slower and less flexible.
-		The [PhysicalSkyMaterial] only supports one sun. The color, energy, and direction of the sun are taken from the first [DirectionalLight3D] in the scene tree.
+		The [PhysicalSkyMaterial] only supports one sun. In the default analytic mode, the color, energy, and direction are taken from the first [DirectionalLight3D] in the scene tree.
+		With [member atmosphere_enabled], a spherical, single-scattering Rayleigh/Mie atmosphere with an ozone absorption layer is integrated instead. The explicit atmosphere sun properties describe light before atmospheric attenuation. This allows [method sample_sun_transmittance] to drive a separate ground [DirectionalLight3D] without attenuating the sky twice. This mode does not implement multiple scattering, aerial-perspective volumes, or a sky-view LUT. A media-dependent 256 by 64 transmittance LUT is cached; sky rays use 16 integration steps.
 	</description>
 	<tutorials>
 	</tutorials>
+
+	<methods>
+		<method name="sample_sun_transmittance" qualifiers="const">
+			<return type="Color" />
+			<param index="0" name="sun_direction" type="Vector3" />
+			<param index="1" name="altitude" type="float" default="0.0" />
+			<description>
+				Returns linear RGB transmittance through the spherical atmosphere from the specified altitude in meters toward the sun. Direction is normalized internally; positive Y points away from the planet. Returns black when the planet occludes the sun. This method uses the same media coefficients as integrated sky rendering and does not include sun color, sun energy, or artistic exposure. It can be used whether or not integrated rendering is enabled. Convert to sRGB when assigning a color property that expects sRGB, such as [member Light3D.light_color].
+			</description>
+		</method>
+		<method name="sample_sky_radiance" qualifiers="const">
+			<return type="Color" />
+			<param index="0" name="view_direction" type="Vector3" />
+			<param index="1" name="sun_direction" type="Vector3" />
+			<param index="2" name="altitude" type="float" default="0.0" />
+			<description>
+				Returns linear RGB single-scattering radiance along a sky ray, using the integrated atmosphere's media, sun color, sun energy, night fill, and [member energy_multiplier]. Does not include the solar disk, night texture, or scene fog. This CPU quadrature is intended for occasional ambient/fog probes, not per-pixel evaluation. Positive Y points away from the planet; altitude is in meters.
+			</description>
+		</method>
+	</methods>
 	<members>
+		<member name="atmosphere_ozone_strength" type="float" setter="set_atmosphere_ozone_strength" getter="get_atmosphere_ozone_strength" default="1.0">
+			Absorption multiplier for the integrated atmosphere's ozone layer. Density rises linearly from zero at 10 km to one at 25 km, then falls to zero at 40 km. Reference RGB absorption is (0.650, 1.881, 0.085) times 10^-6 per meter. Affects both sunlight transmittance and sky extinction; it does not scatter light. Zero disables ozone. Only integrated rendering and CPU sampling are affected.
+		</member>
+		<member name="atmosphere_enabled" type="bool" setter="set_atmosphere_enabled" getter="get_atmosphere_enabled" default="false">
+			Enables the spherical single-scattering model. Disabled by default to preserve the original analytic sky. Media changes rebuild the transmittance texture; sun direction, sun energy, and observer altitude do not.
+		</member>
+		<member name="atmosphere_altitude" type="float" setter="set_atmosphere_altitude" getter="get_atmosphere_altitude" default="0.0">
+			Observer altitude above the planet in meters. Integrated rendering is intended for observers inside the atmosphere; it clamps the observer below its top. This is explicit so an application can use sea-level-relative coordinates.
+		</member>
+		<member name="atmosphere_planet_radius" type="float" setter="set_atmosphere_planet_radius" getter="get_atmosphere_planet_radius" default="6360000.0">
+			Planet radius in meters. The planet blocks sunlight for rays intersecting its ground sphere.
+		</member>
+		<member name="atmosphere_height" type="float" setter="set_atmosphere_height" getter="get_atmosphere_height" default="100000.0">
+			Atmosphere thickness above the planet in meters.
+		</member>
+		<member name="rayleigh_scale_height" type="float" setter="set_rayleigh_scale_height" getter="get_rayleigh_scale_height" default="8000.0">
+			Exponential Rayleigh density scale height in meters. Only affects integrated rendering and sampling. At the default legacy coefficients and colors, sea-level scattering is (5.802, 13.558, 33.1) times 10^-6 per meter; rayleigh_coefficient scales this linearly relative to 2.0.
+		</member>
+		<member name="mie_scale_height" type="float" setter="set_mie_scale_height" getter="get_mie_scale_height" default="1200.0">
+			Exponential Mie density scale height in meters. Only affects integrated rendering and sampling. At default legacy coefficients and colors, sea-level scattering is 3.996 times 10^-6 per meter. mie_coefficient and turbidity scale this linearly relative to 0.005 and 10.0 respectively.
+		</member>
+		<member name="mie_single_scattering_albedo" type="float" setter="set_mie_single_scattering_albedo" getter="get_mie_single_scattering_albedo" default="0.9">
+			Ratio of Mie scattering to Mie extinction in integrated mode. Values below one add aerosol absorption; Rayleigh does not absorb. Clamped from 0.01 to 1.0.
+		</member>
+		<member name="atmosphere_sun_direction" type="Vector3" setter="set_atmosphere_sun_direction" getter="get_atmosphere_sun_direction" default="Vector3(0, 1, 0)">
+			Normalized direction toward the unattenuated sun in world space. Integrated mode uses this instead of reading the first scene light, allowing ground lighting and sky lighting to use different attenuation. Usually this is the world-space positive Z axis of a DirectionalLight3D.
+		</member>
+		<member name="atmosphere_sun_color" type="Color" setter="set_atmosphere_sun_color" getter="get_atmosphere_sun_color" default="Color(1, 1, 1, 1)">
+			Unattenuated sun color in sRGB, independent of scene light color. Used only by integrated rendering and CPU sky-radiance sampling.
+		</member>
+		<member name="atmosphere_sun_energy" type="float" setter="set_atmosphere_sun_energy" getter="get_atmosphere_sun_energy" default="20.0">
+			Radiance scale of the unattenuated solar source in integrated mode. This is a renderer scale, not lux. The ground light energy remains a separate application-controlled value.
+		</member>
+		<member name="atmosphere_night_color" type="Color" setter="set_atmosphere_night_color" getter="get_atmosphere_night_color" default="Color(0.002, 0.004, 0.008, 1)">
+			Linear RGB night fill attenuated along the view ray. An artistic floor for a single-sun model; it is not moonlight or multiple scattering.
+		</member>
+
 		<member name="energy_multiplier" type="float" setter="set_energy_multiplier" getter="get_energy_multiplier" default="1.0">
 			The sky's overall brightness multiplier. Higher values result in a brighter sky.
 		</member>

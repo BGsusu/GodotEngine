@@ -198,6 +198,7 @@ public:
 	virtual float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const = 0;
 
 	// Fog
+	virtual void environment_set_analytic_fog(RID p_env, const PackedFloat32Array &p_parameters) = 0;
 	virtual void environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode = RSE::EnvironmentFogMode::ENV_FOG_MODE_EXPONENTIAL) = 0;
 
 	virtual bool environment_get_fog_enabled(RID p_env) const = 0;

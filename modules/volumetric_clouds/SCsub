@@ -1,0 +1,9 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+Import("env_modules")
+
+env_clouds = env_modules.Clone()
+env_clouds.RD_GLSL("volumetric_cloud.glsl")
+env_clouds.add_source_files(env.modules_sources, "*.cpp")

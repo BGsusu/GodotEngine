@@ -1276,6 +1276,14 @@ void SkyRD::setup_sky(const RenderDataRD *p_render_data, const Size2i p_screen_s
 	sky_scene_state.ubo.volumetric_fog_sky_affect = RendererSceneRenderRD::get_singleton()->environment_get_volumetric_fog_sky_affect(p_render_data->environment);
 	sky_scene_state.ubo.fog_use_legacy_blending = RendererSceneRenderRD::get_singleton()->fog_use_legacy_blending_get();
 
+	memset(sky_scene_state.ubo.analytic_fog, 0, sizeof(sky_scene_state.ubo.analytic_fog));
+	PackedFloat32Array analytic_parameters = RendererSceneRenderRD::get_singleton()->environment_get_analytic_fog(p_render_data->environment);
+	if (analytic_parameters.size() == 24) {
+		memcpy(sky_scene_state.ubo.analytic_fog, analytic_parameters.ptr(), sizeof(sky_scene_state.ubo.analytic_fog));
+		sky_scene_state.ubo.analytic_fog[11] = p_render_data->camera_attributes.is_valid()
+				? RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes) : 1.0f;
+	}
+	RendererRD::MaterialStorage::store_camera(Projection(p_render_data->scene_data->cam_transform), sky_scene_state.ubo.analytic_camera_transform);
 	RD::get_singleton()->buffer_update(sky_scene_state.uniform_buffer, 0, sizeof(SkySceneState::UBO), &sky_scene_state.ubo);
 }
 

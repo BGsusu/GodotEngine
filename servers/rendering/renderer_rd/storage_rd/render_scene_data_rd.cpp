@@ -257,6 +257,15 @@ void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw 
 		ubo.IBL_exposure_normalization = 1.0;
 	}
 
+	memset(ubo.analytic_fog, 0, sizeof(ubo.analytic_fog));
+	if (p_env.is_valid()) {
+		PackedFloat32Array parameters = render_scene_render->environment_get_analytic_fog(p_env);
+		if (parameters.size() == 24) {
+			memcpy(ubo.analytic_fog, parameters.ptr(), sizeof(ubo.analytic_fog));
+			ubo.analytic_fog[11] = ubo.emissive_exposure_normalization;
+		}
+	}
+
 	bool roughness_limiter_enabled = p_opaque_render_buffers && render_scene_render->screen_space_roughness_limiter_is_active();
 	ubo.flags |= roughness_limiter_enabled ? SCENE_DATA_FLAGS_USE_ROUGHNESS_LIMITER : 0;
 	ubo.roughness_limiter_amount = render_scene_render->screen_space_roughness_limiter_get_amount();

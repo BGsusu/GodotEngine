@@ -179,6 +179,20 @@ private:
 	void _update_glow();
 
 	// Fog
+	// Optional analytic global fog. All radiance inputs are linear HDR.
+	bool analytic_fog_enabled = false;
+	float analytic_fog_distance_density = 0.0f;
+	float analytic_fog_start_distance = 0.0f;
+	float analytic_fog_height_density = 0.0f;
+	float analytic_fog_height_base = 0.0f;
+	float analytic_fog_height_scale = 100.0f;
+	float analytic_fog_max_distance = 60000.0f;
+	Vector3 analytic_fog_sun_direction = Vector3(0, 1, 0);
+	Color analytic_fog_sun_radiance = Color(0, 0, 0);
+	Color analytic_fog_sky_horizon_radiance = Color(0, 0, 0);
+	Color analytic_fog_sky_zenith_radiance = Color(0, 0, 0);
+	float analytic_fog_sun_anisotropy = 0.35f;
+	void _update_analytic_fog();
 	bool fog_enabled = false;
 	FogMode fog_mode = FOG_MODE_EXPONENTIAL;
 	Color fog_light_color = Color(0.518, 0.553, 0.608);
@@ -379,6 +393,31 @@ public:
 
 	// Fog
 
+	float sample_analytic_fog_transmittance(Vector3 p_origin, Vector3 p_direction, float p_distance) const;
+	void set_analytic_fog_enabled(bool p_value);
+	bool get_analytic_fog_enabled() const;
+	void set_analytic_fog_distance_density(float p_value);
+	float get_analytic_fog_distance_density() const;
+	void set_analytic_fog_start_distance(float p_value);
+	float get_analytic_fog_start_distance() const;
+	void set_analytic_fog_height_density(float p_value);
+	float get_analytic_fog_height_density() const;
+	void set_analytic_fog_height_base(float p_value);
+	float get_analytic_fog_height_base() const;
+	void set_analytic_fog_height_scale(float p_value);
+	float get_analytic_fog_height_scale() const;
+	void set_analytic_fog_max_distance(float p_value);
+	float get_analytic_fog_max_distance() const;
+	void set_analytic_fog_sun_direction(Vector3 p_value);
+	Vector3 get_analytic_fog_sun_direction() const;
+	void set_analytic_fog_sun_radiance(Color p_value);
+	Color get_analytic_fog_sun_radiance() const;
+	void set_analytic_fog_sky_horizon_radiance(Color p_value);
+	Color get_analytic_fog_sky_horizon_radiance() const;
+	void set_analytic_fog_sky_zenith_radiance(Color p_value);
+	Color get_analytic_fog_sky_zenith_radiance() const;
+	void set_analytic_fog_sun_anisotropy(float p_value);
+	float get_analytic_fog_sun_anisotropy() const;
 	void set_fog_enabled(bool p_enabled);
 	bool is_fog_enabled() const;
 	void set_fog_mode(FogMode p_mode);

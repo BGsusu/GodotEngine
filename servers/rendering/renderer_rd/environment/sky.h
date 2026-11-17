@@ -160,6 +160,8 @@ public:
 			uint32_t directional_light_count; // 4 - 344
 			uint32_t fog_use_legacy_blending; // 4 - 348
 			uint32_t pad1; // 4 - 352
+			float analytic_fog[24];
+			float analytic_camera_transform[16];
 		};
 
 		UBO ubo;

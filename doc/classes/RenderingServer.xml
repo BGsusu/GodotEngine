@@ -18,6 +18,12 @@
 		<link title="Optimization using Servers">$DOCS_URL/tutorials/performance/using_servers.html</link>
 	</tutorials>
 	<methods>
+		<method name="environment_set_analytic_fog">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="parameters" type="PackedFloat32Array" />
+			<description>Internal 24-float transport for the named Environment analytic_fog properties. Rows are enabled/distance density/start/max distance; height density/base/scale/anisotropy; linear sun RGB/exposure placeholder; sun direction; linear horizon RGB; linear zenith RGB. Prefer the named Environment properties. Forward+ only.</description>
+		</method>
 		<method name="area_light_create">
 			<return type="RID" />
 			<description>

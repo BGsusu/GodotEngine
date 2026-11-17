@@ -18,6 +18,13 @@
 		<link title="Third Person Shooter (TPS) Demo">https://godotengine.org/asset-library/asset/2710</link>
 	</tutorials>
 	<methods>
+		<method name="sample_analytic_fog_transmittance" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="origin" type="Vector3" />
+			<param index="1" name="direction" type="Vector3" />
+			<param index="2" name="distance" type="float" />
+			<description>CPU evaluation of the same distance plus exponential-height integral used by the native shaders. Direction is normalized. Returns 1 when disabled, before the start distance, or with both densities zero. Stable logarithmic evaluation handles horizontal/upward/downward paths; total optical thickness is capped at 80 to prevent overflow. Does not require a RenderingDevice.</description>
+		</method>
 		<method name="get_glow_level" qualifiers="const">
 			<return type="float" />
 			<param index="0" name="idx" type="int" />
@@ -35,6 +42,18 @@
 		</method>
 	</methods>
 	<members>
+		<member name="analytic_fog_enabled" type="bool" setter="set_analytic_fog_enabled" getter="get_analytic_fog_enabled" default="false">Enables the Forward+ analytic atmosphere fog alternative. It replaces ordinary and froxel fog on surfaces, the final sky, and native clouds. Disabled by default; other renderers are not supported.</member>
+		<member name="analytic_fog_distance_density" type="float" setter="set_analytic_fog_distance_density" getter="get_analytic_fog_distance_density" default="0.0">Uniform extinction per meter, independently zeroable. Its optical thickness adds to the analytic height term.</member>
+		<member name="analytic_fog_start_distance" type="float" setter="set_analytic_fog_start_distance" getter="get_analytic_fog_start_distance" default="0.0">Meters excluded from both distance and height integration, measured from the camera. Height integration starts at camera + ray * start_distance.</member>
+		<member name="analytic_fog_height_density" type="float" setter="set_analytic_fog_height_density" getter="get_analytic_fog_height_density" default="0.0">Extinction per meter at height_base. Density varies as exp(-(world_y-height_base)/height_scale). Independently zeroable.</member>
+		<member name="analytic_fog_height_base" type="float" setter="set_analytic_fog_height_base" getter="get_analytic_fog_height_base" default="0.0">World Y in meters at which height_density is defined.</member>
+		<member name="analytic_fog_height_scale" type="float" setter="set_analytic_fog_height_scale" getter="get_analytic_fog_height_scale" default="100.0">Positive scale height in meters. Smaller values confine dense fog closer to the base height.</member>
+		<member name="analytic_fog_max_distance" type="float" setter="set_analytic_fog_max_distance" getter="get_analytic_fog_max_distance" default="60000.0">Finite endpoint in meters for visible sky fog. Surface and cloud integration is capped at the same distance, independently of camera far plane.</member>
+		<member name="analytic_fog_sun_direction" type="Vector3" setter="set_analytic_fog_sun_direction" getter="get_analytic_fog_sun_direction" default="Vector3(0, 1, 0)">Normalized world-space direction toward the sun.</member>
+		<member name="analytic_fog_sun_radiance" type="Color" setter="set_analytic_fog_sun_radiance" getter="get_analytic_fog_sun_radiance" default="Color(0, 0, 0, 1)">Linear HDR sunlight input after atmospheric transmittance. No sRGB conversion is applied. The source uses a Henyey-Greenstein phase normalized by 4*pi.</member>
+		<member name="analytic_fog_sky_horizon_radiance" type="Color" setter="set_analytic_fog_sky_horizon_radiance" getter="get_analytic_fog_sky_horizon_radiance" default="Color(0, 0, 0, 1)">Linear HDR atmospheric sky radiance for low-elevation viewing directions.</member>
+		<member name="analytic_fog_sky_zenith_radiance" type="Color" setter="set_analytic_fog_sky_zenith_radiance" getter="get_analytic_fog_sky_zenith_radiance" default="Color(0, 0, 0, 1)">Linear HDR atmospheric sky radiance toward the zenith. Mixed by positive world-space ray elevation.</member>
+		<member name="analytic_fog_sun_anisotropy" type="float" setter="set_analytic_fog_sun_anisotropy" getter="get_analytic_fog_sun_anisotropy" default="0.35">Henyey-Greenstein directional asymmetry, clamped to [-0.95,0.95].</member>
 		<member name="adjustment_brightness" type="float" setter="set_adjustment_brightness" getter="get_adjustment_brightness" default="1.0">
 			Applies a simple brightness adjustment to the rendered image after tonemaping. To adjust scene brightness use [member tonemap_exposure] instead, which is applied before tonemapping and thus less prone to issues with bright colors. Effective only if [member adjustment_enabled] is [code]true[/code].
 		</member>

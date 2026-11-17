@@ -345,6 +345,20 @@ RendererEnvironmentStorage::TonemapParameters RendererEnvironmentStorage::enviro
 
 // Fog
 
+void RendererEnvironmentStorage::environment_set_analytic_fog(RID p_env, const PackedFloat32Array &p_parameters) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	ERR_FAIL_COND(p_parameters.size() != 24);
+	for (float value : p_parameters) { ERR_FAIL_COND(!Math::is_finite(value)); }
+	env->analytic_fog = p_parameters;
+}
+
+PackedFloat32Array RendererEnvironmentStorage::environment_get_analytic_fog(RID p_env) const {
+	const Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, PackedFloat32Array());
+	return env->analytic_fog;
+}
+
 void RendererEnvironmentStorage::environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_fog_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);

@@ -771,6 +771,172 @@ void Environment::_update_glow() {
 
 // Fog
 
+void Environment::set_analytic_fog_enabled(bool p_value) {
+	if (analytic_fog_enabled == p_value) return;
+	analytic_fog_enabled = p_value;
+	_update_analytic_fog();
+}
+
+bool Environment::get_analytic_fog_enabled() const { return analytic_fog_enabled; }
+
+void Environment::set_analytic_fog_distance_density(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, float(0), float(1));
+	if (analytic_fog_distance_density == p_value) return;
+	analytic_fog_distance_density = p_value;
+	_update_analytic_fog();
+}
+
+float Environment::get_analytic_fog_distance_density() const { return analytic_fog_distance_density; }
+
+void Environment::set_analytic_fog_start_distance(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, float(0), float(200000));
+	if (analytic_fog_start_distance == p_value) return;
+	analytic_fog_start_distance = p_value;
+	_update_analytic_fog();
+}
+
+float Environment::get_analytic_fog_start_distance() const { return analytic_fog_start_distance; }
+
+void Environment::set_analytic_fog_height_density(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, float(0), float(1));
+	if (analytic_fog_height_density == p_value) return;
+	analytic_fog_height_density = p_value;
+	_update_analytic_fog();
+}
+
+float Environment::get_analytic_fog_height_density() const { return analytic_fog_height_density; }
+
+void Environment::set_analytic_fog_height_base(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, float(-10000000), float(10000000));
+	if (analytic_fog_height_base == p_value) return;
+	analytic_fog_height_base = p_value;
+	_update_analytic_fog();
+}
+
+float Environment::get_analytic_fog_height_base() const { return analytic_fog_height_base; }
+
+void Environment::set_analytic_fog_height_scale(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, float(0.1), float(100000));
+	if (analytic_fog_height_scale == p_value) return;
+	analytic_fog_height_scale = p_value;
+	_update_analytic_fog();
+}
+
+float Environment::get_analytic_fog_height_scale() const { return analytic_fog_height_scale; }
+
+void Environment::set_analytic_fog_max_distance(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, float(1), float(200000));
+	if (analytic_fog_max_distance == p_value) return;
+	analytic_fog_max_distance = p_value;
+	_update_analytic_fog();
+}
+
+float Environment::get_analytic_fog_max_distance() const { return analytic_fog_max_distance; }
+
+void Environment::set_analytic_fog_sun_direction(Vector3 p_value) {
+	ERR_FAIL_COND(!p_value.is_finite() || p_value.length_squared() < 0.000001);
+	p_value.normalize();
+	if (analytic_fog_sun_direction == p_value) return;
+	analytic_fog_sun_direction = p_value;
+	_update_analytic_fog();
+}
+
+Vector3 Environment::get_analytic_fog_sun_direction() const { return analytic_fog_sun_direction; }
+
+void Environment::set_analytic_fog_sun_radiance(Color p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b));
+	p_value = p_value.clamp(Color(0, 0, 0, 0), Color(100000, 100000, 100000, 1));
+	if (analytic_fog_sun_radiance == p_value) return;
+	analytic_fog_sun_radiance = p_value;
+	_update_analytic_fog();
+}
+
+Color Environment::get_analytic_fog_sun_radiance() const { return analytic_fog_sun_radiance; }
+
+void Environment::set_analytic_fog_sky_horizon_radiance(Color p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b));
+	p_value = p_value.clamp(Color(0, 0, 0, 0), Color(100000, 100000, 100000, 1));
+	if (analytic_fog_sky_horizon_radiance == p_value) return;
+	analytic_fog_sky_horizon_radiance = p_value;
+	_update_analytic_fog();
+}
+
+Color Environment::get_analytic_fog_sky_horizon_radiance() const { return analytic_fog_sky_horizon_radiance; }
+
+void Environment::set_analytic_fog_sky_zenith_radiance(Color p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b));
+	p_value = p_value.clamp(Color(0, 0, 0, 0), Color(100000, 100000, 100000, 1));
+	if (analytic_fog_sky_zenith_radiance == p_value) return;
+	analytic_fog_sky_zenith_radiance = p_value;
+	_update_analytic_fog();
+}
+
+Color Environment::get_analytic_fog_sky_zenith_radiance() const { return analytic_fog_sky_zenith_radiance; }
+
+void Environment::set_analytic_fog_sun_anisotropy(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, float(-0.95), float(0.95));
+	if (analytic_fog_sun_anisotropy == p_value) return;
+	analytic_fog_sun_anisotropy = p_value;
+	_update_analytic_fog();
+}
+
+float Environment::get_analytic_fog_sun_anisotropy() const { return analytic_fog_sun_anisotropy; }
+
+void Environment::_update_analytic_fog() {
+	PackedFloat32Array data;
+	data.resize(24);
+	data.fill(0.0f);
+	data.set(0, analytic_fog_enabled ? 1.0f : 0.0f);
+	data.set(1, analytic_fog_distance_density);
+	data.set(2, analytic_fog_start_distance);
+	data.set(3, analytic_fog_max_distance);
+	data.set(4, analytic_fog_height_density);
+	data.set(5, analytic_fog_height_base);
+	data.set(6, analytic_fog_height_scale);
+	data.set(7, analytic_fog_sun_anisotropy);
+	for (int axis = 0; axis < 3; axis++) {
+		data.set(8 + axis, analytic_fog_sun_radiance[axis]);
+		data.set(12 + axis, analytic_fog_sun_direction[axis]);
+		data.set(16 + axis, analytic_fog_sky_horizon_radiance[axis]);
+		data.set(20 + axis, analytic_fog_sky_zenith_radiance[axis]);
+	}
+	data.set(11, 1.0f); // Per-view exposure is supplied by the renderer.
+	RS::get_singleton()->environment_set_analytic_fog(environment, data);
+}
+
+float Environment::sample_analytic_fog_transmittance(Vector3 p_origin, Vector3 p_direction, float p_distance) const {
+	ERR_FAIL_COND_V(!p_origin.is_finite() || !p_direction.is_finite() || !Math::is_finite(p_distance), 1.0f);
+	ERR_FAIL_COND_V(p_direction.length_squared() < 0.000001, 1.0f);
+	if (!analytic_fog_enabled) return 1.0f;
+	p_direction.normalize();
+	double length = MAX(0.0, MIN(double(p_distance), double(analytic_fog_max_distance)) - analytic_fog_start_distance);
+	if (length <= 0.0) return 1.0f;
+	double tau = length * analytic_fog_distance_density;
+	if (analytic_fog_height_density > 0.0f) {
+		double start_y = p_origin.y + p_direction.y * analytic_fog_start_distance;
+		double b = -p_direction.y * length / analytic_fog_height_scale;
+		double log_mean;
+		if (Math::abs(b) < 0.001) {
+			log_mean = b * 0.5 + b * b / 24.0;
+		} else if (b > 0.0) {
+			log_mean = b + Math::log((1.0 - Math::exp(-b)) / b);
+		} else {
+			log_mean = Math::log((1.0 - Math::exp(b)) / -b);
+		}
+		double log_tau = Math::log(double(analytic_fog_height_density)) + Math::log(length)
+				- (start_y - analytic_fog_height_base) / analytic_fog_height_scale + log_mean;
+		tau += Math::exp(CLAMP(log_tau, -80.0, 4.382026634673881));
+	}
+	return Math::exp(-MIN(tau, 80.0));
+}
+
 void Environment::set_fog_enabled(bool p_enabled) {
 	fog_enabled = p_enabled;
 	_update_fog();
@@ -1482,6 +1648,45 @@ void Environment::_bind_methods() {
 
 	// Fog
 
+	ADD_GROUP("Analytic Atmosphere Fog", "analytic_fog_");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_enabled", "value"), &Environment::set_analytic_fog_enabled);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_enabled"), &Environment::get_analytic_fog_enabled);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "analytic_fog_enabled", PROPERTY_HINT_NONE, ""), "set_analytic_fog_enabled", "get_analytic_fog_enabled");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_distance_density", "value"), &Environment::set_analytic_fog_distance_density);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_distance_density"), &Environment::get_analytic_fog_distance_density);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "analytic_fog_distance_density", PROPERTY_HINT_RANGE, "0,0.1,0.000001,or_greater,suffix:1/m"), "set_analytic_fog_distance_density", "get_analytic_fog_distance_density");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_start_distance", "value"), &Environment::set_analytic_fog_start_distance);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_start_distance"), &Environment::get_analytic_fog_start_distance);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "analytic_fog_start_distance", PROPERTY_HINT_RANGE, "0,200000,1,suffix:m"), "set_analytic_fog_start_distance", "get_analytic_fog_start_distance");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_height_density", "value"), &Environment::set_analytic_fog_height_density);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_height_density"), &Environment::get_analytic_fog_height_density);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "analytic_fog_height_density", PROPERTY_HINT_RANGE, "0,0.1,0.00001,or_greater,suffix:1/m"), "set_analytic_fog_height_density", "get_analytic_fog_height_density");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_height_base", "value"), &Environment::set_analytic_fog_height_base);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_height_base"), &Environment::get_analytic_fog_height_base);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "analytic_fog_height_base", PROPERTY_HINT_RANGE, "-100000,100000,0.1,or_less,or_greater,suffix:m"), "set_analytic_fog_height_base", "get_analytic_fog_height_base");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_height_scale", "value"), &Environment::set_analytic_fog_height_scale);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_height_scale"), &Environment::get_analytic_fog_height_scale);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "analytic_fog_height_scale", PROPERTY_HINT_RANGE, "0.1,100000,0.1,suffix:m"), "set_analytic_fog_height_scale", "get_analytic_fog_height_scale");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_max_distance", "value"), &Environment::set_analytic_fog_max_distance);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_max_distance"), &Environment::get_analytic_fog_max_distance);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "analytic_fog_max_distance", PROPERTY_HINT_RANGE, "1,200000,1,suffix:m"), "set_analytic_fog_max_distance", "get_analytic_fog_max_distance");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_sun_direction", "value"), &Environment::set_analytic_fog_sun_direction);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_sun_direction"), &Environment::get_analytic_fog_sun_direction);
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "analytic_fog_sun_direction", PROPERTY_HINT_NONE, ""), "set_analytic_fog_sun_direction", "get_analytic_fog_sun_direction");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_sun_radiance", "value"), &Environment::set_analytic_fog_sun_radiance);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_sun_radiance"), &Environment::get_analytic_fog_sun_radiance);
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "analytic_fog_sun_radiance", PROPERTY_HINT_NONE, ""), "set_analytic_fog_sun_radiance", "get_analytic_fog_sun_radiance");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_sky_horizon_radiance", "value"), &Environment::set_analytic_fog_sky_horizon_radiance);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_sky_horizon_radiance"), &Environment::get_analytic_fog_sky_horizon_radiance);
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "analytic_fog_sky_horizon_radiance", PROPERTY_HINT_NONE, ""), "set_analytic_fog_sky_horizon_radiance", "get_analytic_fog_sky_horizon_radiance");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_sky_zenith_radiance", "value"), &Environment::set_analytic_fog_sky_zenith_radiance);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_sky_zenith_radiance"), &Environment::get_analytic_fog_sky_zenith_radiance);
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "analytic_fog_sky_zenith_radiance", PROPERTY_HINT_NONE, ""), "set_analytic_fog_sky_zenith_radiance", "get_analytic_fog_sky_zenith_radiance");
+	ClassDB::bind_method(D_METHOD("set_analytic_fog_sun_anisotropy", "value"), &Environment::set_analytic_fog_sun_anisotropy);
+	ClassDB::bind_method(D_METHOD("get_analytic_fog_sun_anisotropy"), &Environment::get_analytic_fog_sun_anisotropy);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "analytic_fog_sun_anisotropy", PROPERTY_HINT_RANGE, "-0.95,0.95,0.01"), "set_analytic_fog_sun_anisotropy", "get_analytic_fog_sun_anisotropy");
+	ClassDB::bind_method(D_METHOD("sample_analytic_fog_transmittance", "origin", "direction", "distance"), &Environment::sample_analytic_fog_transmittance);
+
 	ClassDB::bind_method(D_METHOD("set_fog_enabled", "enabled"), &Environment::set_fog_enabled);
 	ClassDB::bind_method(D_METHOD("is_fog_enabled"), &Environment::is_fog_enabled);
 	ClassDB::bind_method(D_METHOD("set_fog_mode", "mode"), &Environment::set_fog_mode);
@@ -1655,6 +1860,7 @@ Environment::Environment() {
 	_update_ssil();
 	_update_sdfgi();
 	_update_glow();
+	_update_analytic_fog();
 	_update_fog();
 	_update_adjustment();
 	_update_volumetric_fog();

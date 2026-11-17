@@ -35,6 +35,7 @@
 #include "core/object/class_db.h"
 #include "core/version.h"
 #include "scene/resources/texture.h"
+#include "scene/resources/image_texture.h"
 #include "servers/rendering/rendering_server.h"
 
 Mutex ProceduralSkyMaterial::shader_mutex;
@@ -521,9 +522,329 @@ PanoramaSkyMaterial::~PanoramaSkyMaterial() {
 //////////////////////////////////
 /* PhysicalSkyMaterial */
 
+
+void PhysicalSkyMaterial::_get_atmosphere_coefficients(Color &r_rayleigh, Color &r_mie_scattering, Color &r_mie_extinction) const {
+	// SI scattering coefficients. Legacy artistic colors tint the terrestrial reference.
+	const Color reference_r = Color(0.3, 0.405, 0.6).srgb_to_linear();
+	const Color reference_m = Color(0.69, 0.729, 0.812).srgb_to_linear();
+	const Color tint_r = rayleigh_color.srgb_to_linear();
+	const Color tint_m = mie_color.srgb_to_linear();
+	r_rayleigh = Color(5.802e-6, 13.558e-6, 33.1e-6) * (MAX(rayleigh, 0.0f) * 0.5f);
+	r_mie_scattering = Color(3.996e-6, 3.996e-6, 3.996e-6) * (MAX(mie, 0.0f) / 0.005f) * (MAX(turbidity, 0.0f) / 10.0f);
+	for (int channel = 0; channel < 3; channel++) {
+		r_rayleigh[channel] *= MAX(tint_r[channel], 0.0f) / reference_r[channel];
+		r_mie_scattering[channel] *= MAX(tint_m[channel], 0.0f) / reference_m[channel];
+	}
+	r_mie_extinction = r_mie_scattering / mie_single_scattering_albedo;
+}
+
+Color PhysicalSkyMaterial::_sample_transmittance(double p_mu, double p_altitude) const {
+	const double height = CLAMP(p_altitude, 0.0, double(atmosphere_height));
+	const double radius = double(atmosphere_planet_radius) + height;
+	const double top = double(atmosphere_planet_radius) + atmosphere_height;
+	const double mu = CLAMP(p_mu, -1.0, 1.0);
+	// Test the planet analytically, independently of quadrature and LUT filtering.
+	if (mu < 0.0 && radius * radius * (1.0 - mu * mu) <= double(atmosphere_planet_radius) * atmosphere_planet_radius) {
+		return Color(0, 0, 0);
+	}
+	const double distance = MAX(0.0, -radius * mu + Math::sqrt(MAX(0.0, radius * radius * (mu * mu - 1.0) + top * top)));
+	double optical_r = 0.0;
+	double optical_m = 0.0;
+	double optical_o = 0.0;
+	// Squared intervals resolve the dense first kilometers, including grazing rays.
+	for (int i = 0; i < 64; i++) {
+		const double a = double(i) / 64.0;
+		const double b = double(i + 1) / 64.0;
+		const double t0 = distance * a * a;
+		const double t1 = distance * b * b;
+		const double t = (t0 + t1) * 0.5;
+		const double h = MAX(0.0, Math::sqrt(radius * radius + t * t + 2.0 * radius * mu * t) - atmosphere_planet_radius);
+		optical_r += Math::exp(-h / rayleigh_scale_height) * (t1 - t0);
+		optical_m += Math::exp(-h / mie_scale_height) * (t1 - t0);
+		optical_o += MAX(0.0, 1.0 - Math::abs(h - 25000.0) / 15000.0) * (t1 - t0);
+	}
+	Color beta_r, beta_m, extinction_m;
+	_get_atmosphere_coefficients(beta_r, beta_m, extinction_m);
+	const Color ozone_beta = Color(0.650e-6, 1.881e-6, 0.085e-6) * atmosphere_ozone_strength;
+	Color result(1, 1, 1);
+	for (int channel = 0; channel < 3; channel++) {
+		result[channel] = Math::exp(-beta_r[channel] * optical_r - extinction_m[channel] * optical_m - ozone_beta[channel] * optical_o);
+	}
+	return result;
+}
+
+Color PhysicalSkyMaterial::sample_sun_transmittance(Vector3 p_sun_direction, float p_altitude) const {
+	ERR_FAIL_COND_V(!p_sun_direction.is_finite() || !Math::is_finite(p_altitude), Color(0, 0, 0));
+	ERR_FAIL_COND_V(p_sun_direction.is_zero_approx(), Color(0, 0, 0));
+	return _sample_transmittance(p_sun_direction.normalized().y, p_altitude);
+}
+
+Color PhysicalSkyMaterial::sample_sky_radiance(Vector3 p_view_direction, Vector3 p_sun_direction, float p_altitude) const {
+	ERR_FAIL_COND_V(!p_view_direction.is_finite() || !p_sun_direction.is_finite() || !Math::is_finite(p_altitude), Color(0, 0, 0));
+	ERR_FAIL_COND_V(p_view_direction.is_zero_approx() || p_sun_direction.is_zero_approx(), Color(0, 0, 0));
+	const Vector3 view = p_view_direction.normalized();
+	const Vector3 sun = p_sun_direction.normalized();
+	const double height = CLAMP(double(p_altitude), 0.0, double(atmosphere_height) - 1.0);
+	const double radius = double(atmosphere_planet_radius) + MAX(height, 1.0);
+	const double top = double(atmosphere_planet_radius) + atmosphere_height;
+	double distance = -radius * view.y + Math::sqrt(MAX(0.0, radius * radius * (view.y * view.y - 1.0) + top * top));
+	const double ground_discriminant = radius * radius * (view.y * view.y - 1.0) + double(atmosphere_planet_radius) * atmosphere_planet_radius;
+	bool ground_hit = view.y < 0.0 && ground_discriminant >= 0.0;
+	if (ground_hit) {
+		distance = MIN(distance, -radius * view.y - Math::sqrt(ground_discriminant));
+	}
+	Color beta_r, beta_m, extinction_m;
+	_get_atmosphere_coefficients(beta_r, beta_m, extinction_m);
+	const double cosine = view.dot(sun);
+	const double g = CLAMP(double(mie_eccentricity), -0.99, 0.99);
+	const double phase_r = 3.0 * (1.0 + cosine * cosine) / (16.0 * Math::PI);
+	const double phase_m = (1.0 - g * g) / (4.0 * Math::PI * Math::pow(MAX(1.0 + g * g - 2.0 * g * cosine, 0.0001), 1.5));
+	const Color ozone_beta = Color(0.650e-6, 1.881e-6, 0.085e-6) * atmosphere_ozone_strength;
+	Color throughput(1, 1, 1);
+	Color radiance(0, 0, 0);
+	for (int i = 0; i < 16; i++) {
+		const double a = double(i) / 16.0;
+		const double b = double(i + 1) / 16.0;
+		const double ds = distance * (b * b - a * a);
+		const double t = distance * (a * a + b * b) * 0.5;
+		const double sample_radius = Math::sqrt(radius * radius + t * t + 2.0 * radius * view.y * t);
+		const double h = MAX(0.0, sample_radius - atmosphere_planet_radius);
+		const double density_r = Math::exp(-h / rayleigh_scale_height);
+		const double density_m = Math::exp(-h / mie_scale_height);
+		const double density_o = MAX(0.0, 1.0 - Math::abs(h - 25000.0) / 15000.0);
+		const Color sun_t = _sample_transmittance((sun.y * radius + t * cosine) / sample_radius, h);
+		for (int channel = 0; channel < 3; channel++) {
+			const double extinction = beta_r[channel] * density_r + extinction_m[channel] * density_m + ozone_beta[channel] * density_o;
+			const double segment_t = Math::exp(-extinction * ds);
+			const double integral = extinction > 1e-12 ? (1.0 - segment_t) / extinction : ds;
+			radiance[channel] += throughput[channel] * sun_t[channel] * (beta_r[channel] * density_r * phase_r + beta_m[channel] * density_m * phase_m) * integral;
+			throughput[channel] *= segment_t;
+		}
+	}
+	radiance *= atmosphere_sun_color.srgb_to_linear() * atmosphere_sun_energy;
+	if (ground_hit) {
+		radiance += ground_color.srgb_to_linear() * atmosphere_sun_color.srgb_to_linear() * sample_sun_transmittance(sun, 0.0f) * (MAX(sun.y, 0.0f) * atmosphere_sun_energy / Math::PI) * throughput;
+	}
+	radiance += atmosphere_night_color * throughput;
+	radiance *= energy_multiplier;
+	radiance.a = 1.0f;
+	return radiance;
+}
+
+void PhysicalSkyMaterial::_mark_atmosphere_dirty() {
+	atmosphere_lut_dirty = true;
+	if (atmosphere_enabled && !atmosphere_lut_queued) {
+		atmosphere_lut_queued = true;
+		call_deferred("_update_atmosphere_lut");
+	}
+}
+
+void PhysicalSkyMaterial::_update_atmosphere_lut() const {
+	atmosphere_lut_queued = false;
+	if (!atmosphere_enabled || !atmosphere_lut_dirty) {
+		return;
+	}
+	atmosphere_lut_dirty = false;
+	Ref<Image> image = Image::create_empty(256, 64, false, Image::FORMAT_RGBAF);
+	for (int y = 0; y < 64; y++) {
+		const double v = double(y) / 63.0;
+		for (int x = 0; x < 256; x++) {
+			const double u = double(x) / 255.0 * 2.0 - 1.0;
+			const double mu = u * Math::abs(u);
+			image->set_pixel(x, y, _sample_transmittance(mu, v * v * atmosphere_height));
+		}
+	}
+	atmosphere_lut = ImageTexture::create_from_image(image);
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_transmittance", atmosphere_lut->get_rid());
+	Color beta_r, beta_m, extinction_m;
+	_get_atmosphere_coefficients(beta_r, beta_m, extinction_m);
+	// Shader operates in kilometers for stable spherical intersections.
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_beta_r", Vector3(beta_r.r, beta_r.g, beta_r.b) * 1000.0f);
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_beta_m", Vector3(beta_m.r, beta_m.g, beta_m.b) * 1000.0f);
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_extinction_m", Vector3(extinction_m.r, extinction_m.g, extinction_m.b) * 1000.0f);
+}
+
+void PhysicalSkyMaterial::set_atmosphere_enabled(bool p_value) {
+	if (atmosphere_enabled == p_value) {
+		return;
+	}
+	atmosphere_enabled = p_value;
+	_update_shader(use_debanding, night_sky.is_valid(), atmosphere_enabled);
+	_update_atmosphere_lut();
+	if (shader_set) {
+		RS::get_singleton()->material_set_shader(_get_material(), get_shader_cache());
+	}
+}
+
+bool PhysicalSkyMaterial::get_atmosphere_enabled() const {
+	return atmosphere_enabled;
+}
+
+void PhysicalSkyMaterial::set_atmosphere_altitude(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 0.0f, 1000000.0f);
+	if (atmosphere_altitude == p_value) {
+		return;
+	}
+	atmosphere_altitude = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_altitude", atmosphere_altitude);
+}
+
+float PhysicalSkyMaterial::get_atmosphere_altitude() const {
+	return atmosphere_altitude;
+}
+
+void PhysicalSkyMaterial::set_atmosphere_planet_radius(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 100000.0f, 100000000.0f);
+	if (atmosphere_planet_radius == p_value) {
+		return;
+	}
+	atmosphere_planet_radius = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_planet_radius", atmosphere_planet_radius);
+	_mark_atmosphere_dirty();
+}
+
+float PhysicalSkyMaterial::get_atmosphere_planet_radius() const {
+	return atmosphere_planet_radius;
+}
+
+
+void PhysicalSkyMaterial::set_atmosphere_ozone_strength(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 0.0f, 10.0f);
+	if (atmosphere_ozone_strength == p_value) {
+		return;
+	}
+	atmosphere_ozone_strength = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_ozone_strength", atmosphere_ozone_strength);
+	_mark_atmosphere_dirty();
+}
+
+float PhysicalSkyMaterial::get_atmosphere_ozone_strength() const {
+	return atmosphere_ozone_strength;
+}
+
+void PhysicalSkyMaterial::set_atmosphere_height(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 1000.0f, 200000.0f);
+	if (atmosphere_height == p_value) {
+		return;
+	}
+	atmosphere_height = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_height", atmosphere_height);
+	_mark_atmosphere_dirty();
+}
+
+float PhysicalSkyMaterial::get_atmosphere_height() const {
+	return atmosphere_height;
+}
+
+void PhysicalSkyMaterial::set_rayleigh_scale_height(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 100.0f, 50000.0f);
+	if (rayleigh_scale_height == p_value) {
+		return;
+	}
+	rayleigh_scale_height = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "rayleigh_scale_height", rayleigh_scale_height);
+	_mark_atmosphere_dirty();
+}
+
+float PhysicalSkyMaterial::get_rayleigh_scale_height() const {
+	return rayleigh_scale_height;
+}
+
+void PhysicalSkyMaterial::set_mie_scale_height(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 100.0f, 20000.0f);
+	if (mie_scale_height == p_value) {
+		return;
+	}
+	mie_scale_height = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "mie_scale_height", mie_scale_height);
+	_mark_atmosphere_dirty();
+}
+
+float PhysicalSkyMaterial::get_mie_scale_height() const {
+	return mie_scale_height;
+}
+
+void PhysicalSkyMaterial::set_mie_single_scattering_albedo(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 0.01f, 1.0f);
+	if (mie_single_scattering_albedo == p_value) {
+		return;
+	}
+	mie_single_scattering_albedo = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "mie_single_scattering_albedo", mie_single_scattering_albedo);
+	_mark_atmosphere_dirty();
+}
+
+float PhysicalSkyMaterial::get_mie_single_scattering_albedo() const {
+	return mie_single_scattering_albedo;
+}
+
+void PhysicalSkyMaterial::set_atmosphere_sun_direction(Vector3 p_value) {
+	ERR_FAIL_COND(!p_value.is_finite() || p_value.is_zero_approx());
+	p_value.normalize();
+	if (atmosphere_sun_direction == p_value) {
+		return;
+	}
+	atmosphere_sun_direction = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_sun_direction", atmosphere_sun_direction);
+}
+
+Vector3 PhysicalSkyMaterial::get_atmosphere_sun_direction() const {
+	return atmosphere_sun_direction;
+}
+
+void PhysicalSkyMaterial::set_atmosphere_sun_color(Color p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b));
+	p_value = Color(MAX(p_value.r, 0.0f), MAX(p_value.g, 0.0f), MAX(p_value.b, 0.0f));
+	if (atmosphere_sun_color == p_value) {
+		return;
+	}
+	atmosphere_sun_color = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_sun_color", atmosphere_sun_color);
+}
+
+Color PhysicalSkyMaterial::get_atmosphere_sun_color() const {
+	return atmosphere_sun_color;
+}
+
+void PhysicalSkyMaterial::set_atmosphere_sun_energy(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 0.0f, 100000.0f);
+	if (atmosphere_sun_energy == p_value) {
+		return;
+	}
+	atmosphere_sun_energy = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_sun_energy", atmosphere_sun_energy);
+}
+
+float PhysicalSkyMaterial::get_atmosphere_sun_energy() const {
+	return atmosphere_sun_energy;
+}
+
+void PhysicalSkyMaterial::set_atmosphere_night_color(Color p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b));
+	p_value = Color(MAX(p_value.r, 0.0f), MAX(p_value.g, 0.0f), MAX(p_value.b, 0.0f));
+	if (atmosphere_night_color == p_value) {
+		return;
+	}
+	atmosphere_night_color = p_value;
+	RS::get_singleton()->material_set_param(_get_material(), "atmosphere_night_color", atmosphere_night_color);
+}
+
+Color PhysicalSkyMaterial::get_atmosphere_night_color() const {
+	return atmosphere_night_color;
+}
+
 void PhysicalSkyMaterial::set_rayleigh_coefficient(float p_rayleigh) {
 	rayleigh = p_rayleigh;
 	RS::get_singleton()->material_set_param(_get_material(), "rayleigh", rayleigh);
+	_mark_atmosphere_dirty();
 }
 
 float PhysicalSkyMaterial::get_rayleigh_coefficient() const {
@@ -533,6 +854,7 @@ float PhysicalSkyMaterial::get_rayleigh_coefficient() const {
 void PhysicalSkyMaterial::set_rayleigh_color(Color p_rayleigh_color) {
 	rayleigh_color = p_rayleigh_color;
 	RS::get_singleton()->material_set_param(_get_material(), "rayleigh_color", rayleigh_color);
+	_mark_atmosphere_dirty();
 }
 
 Color PhysicalSkyMaterial::get_rayleigh_color() const {
@@ -542,6 +864,7 @@ Color PhysicalSkyMaterial::get_rayleigh_color() const {
 void PhysicalSkyMaterial::set_mie_coefficient(float p_mie) {
 	mie = p_mie;
 	RS::get_singleton()->material_set_param(_get_material(), "mie", mie);
+	_mark_atmosphere_dirty();
 }
 
 float PhysicalSkyMaterial::get_mie_coefficient() const {
@@ -560,6 +883,7 @@ float PhysicalSkyMaterial::get_mie_eccentricity() const {
 void PhysicalSkyMaterial::set_mie_color(Color p_mie_color) {
 	mie_color = p_mie_color;
 	RS::get_singleton()->material_set_param(_get_material(), "mie_color", mie_color);
+	_mark_atmosphere_dirty();
 }
 
 Color PhysicalSkyMaterial::get_mie_color() const {
@@ -569,6 +893,7 @@ Color PhysicalSkyMaterial::get_mie_color() const {
 void PhysicalSkyMaterial::set_turbidity(float p_turbidity) {
 	turbidity = p_turbidity;
 	RS::get_singleton()->material_set_param(_get_material(), "turbidity", turbidity);
+	_mark_atmosphere_dirty();
 }
 
 float PhysicalSkyMaterial::get_turbidity() const {
@@ -604,7 +929,7 @@ float PhysicalSkyMaterial::get_energy_multiplier() const {
 
 void PhysicalSkyMaterial::set_use_debanding(bool p_use_debanding) {
 	use_debanding = p_use_debanding;
-	_update_shader(use_debanding, night_sky.is_valid());
+	_update_shader(use_debanding, night_sky.is_valid(), atmosphere_enabled);
 	// Only set if shader already compiled
 	if (shader_set) {
 		RS::get_singleton()->material_set_shader(_get_material(), get_shader_cache());
@@ -623,7 +948,7 @@ void PhysicalSkyMaterial::set_night_sky(const Ref<Texture2D> &p_night_sky) {
 		RS::get_singleton()->material_set_param(_get_material(), "night_sky", Variant());
 	}
 
-	_update_shader(use_debanding, night_sky.is_valid());
+	_update_shader(use_debanding, night_sky.is_valid(), atmosphere_enabled);
 
 	if (shader_set) {
 		RS::get_singleton()->material_set_shader(_get_material(), get_shader_cache());
@@ -641,11 +966,12 @@ Shader::Mode PhysicalSkyMaterial::get_shader_mode() const {
 // Internal function to grab the current shader RID.
 // Must only be called if the shader is initialized.
 RID PhysicalSkyMaterial::get_shader_cache() const {
-	return shader_cache[int(use_debanding) + (night_sky.is_valid() ? 2 : 0)];
+	return shader_cache[int(use_debanding) + (night_sky.is_valid() ? 2 : 0) + (atmosphere_enabled ? 4 : 0)];
 }
 
 RID PhysicalSkyMaterial::get_rid() const {
-	_update_shader(use_debanding, night_sky.is_valid());
+	_update_atmosphere_lut();
+	_update_shader(use_debanding, night_sky.is_valid(), atmosphere_enabled);
 	if (!shader_set) {
 		RS::get_singleton()->material_set_shader(_get_material(), get_shader_cache());
 		shader_set = true;
@@ -654,7 +980,8 @@ RID PhysicalSkyMaterial::get_rid() const {
 }
 
 RID PhysicalSkyMaterial::get_shader_rid() const {
-	_update_shader(use_debanding, night_sky.is_valid());
+	_update_atmosphere_lut();
+	_update_shader(use_debanding, night_sky.is_valid(), atmosphere_enabled);
 	return get_shader_cache();
 }
 
@@ -668,9 +995,51 @@ void PhysicalSkyMaterial::_validate_property(PropertyInfo &p_property) const {
 }
 
 Mutex PhysicalSkyMaterial::shader_mutex;
-RID PhysicalSkyMaterial::shader_cache[4];
+RID PhysicalSkyMaterial::shader_cache[8];
 
 void PhysicalSkyMaterial::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_atmosphere_ozone_strength", "value"), &PhysicalSkyMaterial::set_atmosphere_ozone_strength);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_ozone_strength"), &PhysicalSkyMaterial::get_atmosphere_ozone_strength);
+	ClassDB::bind_method(D_METHOD("set_atmosphere_enabled", "value"), &PhysicalSkyMaterial::set_atmosphere_enabled);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_enabled"), &PhysicalSkyMaterial::get_atmosphere_enabled);
+	ClassDB::bind_method(D_METHOD("set_atmosphere_altitude", "value"), &PhysicalSkyMaterial::set_atmosphere_altitude);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_altitude"), &PhysicalSkyMaterial::get_atmosphere_altitude);
+	ClassDB::bind_method(D_METHOD("set_atmosphere_planet_radius", "value"), &PhysicalSkyMaterial::set_atmosphere_planet_radius);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_planet_radius"), &PhysicalSkyMaterial::get_atmosphere_planet_radius);
+	ClassDB::bind_method(D_METHOD("set_atmosphere_height", "value"), &PhysicalSkyMaterial::set_atmosphere_height);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_height"), &PhysicalSkyMaterial::get_atmosphere_height);
+	ClassDB::bind_method(D_METHOD("set_rayleigh_scale_height", "value"), &PhysicalSkyMaterial::set_rayleigh_scale_height);
+	ClassDB::bind_method(D_METHOD("get_rayleigh_scale_height"), &PhysicalSkyMaterial::get_rayleigh_scale_height);
+	ClassDB::bind_method(D_METHOD("set_mie_scale_height", "value"), &PhysicalSkyMaterial::set_mie_scale_height);
+	ClassDB::bind_method(D_METHOD("get_mie_scale_height"), &PhysicalSkyMaterial::get_mie_scale_height);
+	ClassDB::bind_method(D_METHOD("set_mie_single_scattering_albedo", "value"), &PhysicalSkyMaterial::set_mie_single_scattering_albedo);
+	ClassDB::bind_method(D_METHOD("get_mie_single_scattering_albedo"), &PhysicalSkyMaterial::get_mie_single_scattering_albedo);
+	ClassDB::bind_method(D_METHOD("set_atmosphere_sun_direction", "value"), &PhysicalSkyMaterial::set_atmosphere_sun_direction);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_sun_direction"), &PhysicalSkyMaterial::get_atmosphere_sun_direction);
+	ClassDB::bind_method(D_METHOD("set_atmosphere_sun_color", "value"), &PhysicalSkyMaterial::set_atmosphere_sun_color);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_sun_color"), &PhysicalSkyMaterial::get_atmosphere_sun_color);
+	ClassDB::bind_method(D_METHOD("set_atmosphere_sun_energy", "value"), &PhysicalSkyMaterial::set_atmosphere_sun_energy);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_sun_energy"), &PhysicalSkyMaterial::get_atmosphere_sun_energy);
+	ClassDB::bind_method(D_METHOD("set_atmosphere_night_color", "value"), &PhysicalSkyMaterial::set_atmosphere_night_color);
+	ClassDB::bind_method(D_METHOD("get_atmosphere_night_color"), &PhysicalSkyMaterial::get_atmosphere_night_color);
+	ClassDB::bind_method(D_METHOD("sample_sun_transmittance", "sun_direction", "altitude"), &PhysicalSkyMaterial::sample_sun_transmittance, DEFVAL(0.0f));
+	ClassDB::bind_method(D_METHOD("sample_sky_radiance", "view_direction", "sun_direction", "altitude"), &PhysicalSkyMaterial::sample_sky_radiance, DEFVAL(0.0f));
+	ClassDB::bind_method(D_METHOD("_update_atmosphere_lut"), &PhysicalSkyMaterial::_update_atmosphere_lut);
+	ADD_GROUP("Integrated Atmosphere", "atmosphere_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "atmosphere_ozone_strength", PROPERTY_HINT_RANGE, "0,10,0.01"), "set_atmosphere_ozone_strength", "get_atmosphere_ozone_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "atmosphere_enabled"), "set_atmosphere_enabled", "get_atmosphere_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "atmosphere_altitude", PROPERTY_HINT_RANGE, "0,100000,1,or_greater,suffix:m"), "set_atmosphere_altitude", "get_atmosphere_altitude");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "atmosphere_planet_radius", PROPERTY_HINT_RANGE, "100000,10000000,1,or_greater,suffix:m"), "set_atmosphere_planet_radius", "get_atmosphere_planet_radius");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "atmosphere_height", PROPERTY_HINT_RANGE, "1000,200000,1,suffix:m"), "set_atmosphere_height", "get_atmosphere_height");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rayleigh_scale_height", PROPERTY_HINT_RANGE, "100,50000,1,suffix:m"), "set_rayleigh_scale_height", "get_rayleigh_scale_height");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "mie_scale_height", PROPERTY_HINT_RANGE, "100,20000,1,suffix:m"), "set_mie_scale_height", "get_mie_scale_height");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "mie_single_scattering_albedo", PROPERTY_HINT_RANGE, "0.01,1,0.01"), "set_mie_single_scattering_albedo", "get_mie_single_scattering_albedo");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "atmosphere_sun_direction"), "set_atmosphere_sun_direction", "get_atmosphere_sun_direction");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "atmosphere_sun_color"), "set_atmosphere_sun_color", "get_atmosphere_sun_color");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "atmosphere_sun_energy", PROPERTY_HINT_RANGE, "0,128,0.01,or_greater"), "set_atmosphere_sun_energy", "get_atmosphere_sun_energy");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "atmosphere_night_color"), "set_atmosphere_night_color", "get_atmosphere_night_color");
+	ADD_GROUP("", "");
+
 	ClassDB::bind_method(D_METHOD("set_rayleigh_coefficient", "rayleigh"), &PhysicalSkyMaterial::set_rayleigh_coefficient);
 	ClassDB::bind_method(D_METHOD("get_rayleigh_coefficient"), &PhysicalSkyMaterial::get_rayleigh_coefficient);
 
@@ -722,18 +1091,112 @@ void PhysicalSkyMaterial::_bind_methods() {
 }
 
 void PhysicalSkyMaterial::cleanup_shader() {
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < 8; i++) {
 		if (shader_cache[i].is_valid()) {
 			RS::get_singleton()->free_rid(shader_cache[i]);
 		}
 	}
 }
 
-void PhysicalSkyMaterial::_update_shader(bool p_use_debanding, bool p_use_night_sky) {
+void PhysicalSkyMaterial::_update_shader(bool p_use_debanding, bool p_use_night_sky, bool p_atmosphere_enabled) {
 	MutexLock shader_lock(shader_mutex);
-	int index = int(p_use_debanding) + int(p_use_night_sky) * 2;
+	int index = int(p_use_debanding) + int(p_use_night_sky) * 2 + int(p_atmosphere_enabled) * 4;
 	if (shader_cache[index].is_null()) {
 		shader_cache[index] = RS::get_singleton()->shader_create();
+		if (p_atmosphere_enabled) {
+			RS::get_singleton()->shader_set_code(shader_cache[index], vformat(R"(
+// Opt-in spherical single-scattering atmosphere. All integration distances are km.
+// Transmittance is media-dependent only; light direction does not rebuild its LUT.
+shader_type sky;
+%s
+uniform sampler2D atmosphere_transmittance : filter_linear, repeat_disable;
+uniform vec3 atmosphere_beta_r = vec3(0.005802, 0.013558, 0.0331);
+uniform vec3 atmosphere_beta_m = vec3(0.003996);
+uniform vec3 atmosphere_extinction_m = vec3(0.00444);
+uniform float atmosphere_planet_radius = 6360000.0;
+uniform float atmosphere_height = 100000.0;
+uniform float atmosphere_ozone_strength = 1.0;
+uniform float atmosphere_altitude = 0.0;
+uniform float rayleigh_scale_height = 8000.0;
+uniform float mie_scale_height = 1200.0;
+uniform float mie_eccentricity = 0.8;
+uniform vec3 atmosphere_sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec4 atmosphere_sun_color : source_color = vec4(1.0);
+uniform float atmosphere_sun_energy = 20.0;
+uniform vec4 atmosphere_night_color = vec4(0.002, 0.004, 0.008, 1.0);
+uniform vec4 ground_color : source_color = vec4(0.1, 0.07, 0.034, 1.0);
+uniform float sun_disk_scale = 1.0;
+uniform float exposure = 1.0;
+uniform sampler2D night_sky : filter_linear, source_color, hint_default_black;
+
+vec3 sun_transmittance(float mu, float h) {
+	float r = atmosphere_planet_radius * 0.001 + max(h, 0.0);
+	float planet = atmosphere_planet_radius * 0.001;
+	if (mu < 0.0 && r * r * (1.0 - mu * mu) <= planet * planet) {
+		return vec3(0.0);
+	}
+	float u = sign(mu) * sqrt(abs(clamp(mu, -1.0, 1.0))) * 0.5 + 0.5;
+	float v = sqrt(clamp(h / (atmosphere_height * 0.001), 0.0, 1.0));
+	return texture(atmosphere_transmittance, (vec2(u, v) * vec2(255.0, 63.0) + 0.5) / vec2(256.0, 64.0)).rgb;
+}
+
+void sky() {
+	vec3 view = normalize(EYEDIR);
+	vec3 sun = normalize(atmosphere_sun_direction);
+	float planet = atmosphere_planet_radius * 0.001;
+	float top = planet + atmosphere_height * 0.001;
+	float radius = planet + clamp(atmosphere_altitude * 0.001, 0.001, atmosphere_height * 0.001 - 0.001);
+	float distance = -radius * view.y + sqrt(max(0.0, radius * radius * (view.y * view.y - 1.0) + top * top));
+	float ground_d = radius * radius * (view.y * view.y - 1.0) + planet * planet;
+	bool ground_hit = view.y < 0.0 && ground_d >= 0.0;
+	if (ground_hit) {
+		distance = min(distance, max(0.0, -radius * view.y - sqrt(ground_d)));
+	}
+	float cosine = dot(view, sun);
+	float g = clamp(mie_eccentricity, -0.99, 0.99);
+	float phase_r = 3.0 * (1.0 + cosine * cosine) / (16.0 * PI);
+	float phase_m = (1.0 - g * g) / (4.0 * PI * pow(max(1.0 + g * g - 2.0 * g * cosine, 0.0001), 1.5));
+	vec3 throughput = vec3(1.0);
+	vec3 radiance = vec3(0.0);
+	for (int i = 0; i < 16; i++) {
+		float a = float(i) / 16.0;
+		float b = float(i + 1) / 16.0;
+		float ds = distance * (b * b - a * a);
+		float t = distance * (a * a + b * b) * 0.5;
+		vec3 point = vec3(0.0, radius, 0.0) + t * view;
+		float sample_radius = length(point);
+		float h = max(0.0, sample_radius - planet);
+		float density_r = exp(-h / (rayleigh_scale_height * 0.001));
+		float density_m = exp(-h / (mie_scale_height * 0.001));
+		float density_o = max(0.0, 1.0 - abs(h - 25.0) / 15.0);
+		vec3 extinction = atmosphere_beta_r * density_r + atmosphere_extinction_m * density_m + vec3(0.000650, 0.001881, 0.000085) * atmosphere_ozone_strength * density_o;
+		vec3 segment_t = exp(-extinction * ds);
+		vec3 integral = (vec3(1.0) - segment_t) / max(extinction, vec3(1e-8));
+		vec3 sunlight = sun_transmittance(dot(point / sample_radius, sun), h);
+		radiance += throughput * sunlight * (atmosphere_beta_r * density_r * phase_r + atmosphere_beta_m * density_m * phase_m) * integral;
+		throughput *= segment_t;
+	}
+	vec3 source = atmosphere_sun_color.rgb * atmosphere_sun_energy;
+	radiance *= source;
+	if (ground_hit) {
+		radiance += ground_color.rgb * sun_transmittance(sun.y, 0.0) * max(sun.y, 0.0) * source / PI * throughput;
+	} else {
+		float disk = 0.0;
+		if (sun_disk_scale > 0.0) {
+			float angular = max(0.00001, 0.00465 * sun_disk_scale);
+			// Angle-space edges remain distinct even when cos(tiny_angle) rounds to one.
+			disk = 1.0 - smoothstep(angular * 0.9, angular, acos(clamp(cosine, -1.0, 1.0)));
+		}
+		radiance += disk * source * sun_transmittance(sun.y, atmosphere_altitude * 0.001);
+	}
+	radiance += atmosphere_night_color.rgb * throughput;
+	radiance += texture(night_sky, SKY_COORDS).rgb * throughput;
+	COLOR = max(radiance * exposure, vec3(0.0));
+}
+)", p_use_debanding ? "render_mode use_debanding;" : ""));
+			return;
+		}
+
 
 		// Add a comment to describe the shader origin (useful when converting to ShaderMaterial).
 		RS::get_singleton()->shader_set_code(shader_cache[index], vformat(R"(

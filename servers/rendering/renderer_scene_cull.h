@@ -1251,6 +1251,7 @@ public:
 	PASS3RC(float, environment_get_white, RID, bool, float)
 
 	// Fog
+	PASS2(environment_set_analytic_fog, RID, const PackedFloat32Array &)
 	PASS11(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float, float, RSE::EnvironmentFogMode)
 
 	PASS1RC(bool, environment_get_fog_enabled, RID)

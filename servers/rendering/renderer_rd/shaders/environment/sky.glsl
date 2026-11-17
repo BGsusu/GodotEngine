@@ -30,6 +30,7 @@ void main() {
 #VERSION_DEFINES
 
 #include "../oct_inc.glsl"
+#include "analytic_fog_inc.glsl"
 
 #ifdef USE_MULTIVIEW
 #extension GL_EXT_multiview : enable
@@ -80,6 +81,8 @@ layout(set = 0, binding = 2, std140) uniform SkySceneData {
 	uint directional_light_count; // 4 - 56
 	bool fog_use_legacy_blending; // 4 - 60
 	uint pad1; // 4 - 64
+	vec4 analytic_fog[6];
+	mat4 analytic_camera_transform;
 }
 sky_scene_data;
 
@@ -203,6 +206,7 @@ float atan2_approx(float y, float x) {
 void main() {
 	vec2 uv = uv_interp * 0.5 + 0.5;
 	vec3 cube_normal;
+	vec3 analytic_world_direction = vec3(0.0, 1.0, 0.0);
 #ifdef USE_CUBEMAP_PASS
 	cube_normal = oct_to_vec3_with_border(uv, params.border_size.y);
 #else
@@ -219,6 +223,7 @@ void main() {
 	cube_normal.x = (uv_interp.x + params.projection.x) / params.projection.y;
 	cube_normal.y = (uv_interp.y + params.projection.z) / params.projection.w;
 #endif
+	analytic_world_direction = normalize(mat3(sky_scene_data.analytic_camera_transform) * cube_normal);
 	cube_normal = mat3(params.orientation) * cube_normal;
 	cube_normal = normalize(cube_normal);
 #endif
@@ -278,6 +283,18 @@ void main() {
 
 #if !defined(DISABLE_FOG)
 
+	if (sky_scene_data.analytic_fog[0].x > 0.5) {
+#if !defined(USE_CUBEMAP_PASS) && !defined(USE_HALF_RES_PASS) && !defined(USE_QUARTER_RES_PASS)
+		// Final visible sky only: never bake view-dependent fog into illumination.
+		vec3 fog_origin = sky_scene_data.analytic_camera_transform[3].xyz;
+#ifdef USE_MULTIVIEW
+		fog_origin += mat3(sky_scene_data.analytic_camera_transform) * sky_scene_data.view_eye_offsets[ViewIndex].xyz;
+#endif
+		vec4 global_fog = analytic_fog_evaluate(fog_origin, analytic_world_direction,
+				sky_scene_data.analytic_fog[0].w, sky_scene_data.analytic_fog);
+		frag_color.rgb = frag_color.rgb * global_fog.a + global_fog.rgb;
+#endif
+	} else {
 	// Draw "fixed" fog before volumetric fog to ensure volumetric fog can appear in front of the sky.
 	if (sky_scene_data.fog_enabled) {
 		vec4 fog = fog_process(cube_normal, frag_color.rgb);
@@ -295,6 +312,7 @@ void main() {
 		}
 	}
 #endif // USE_CUBEMAP_PASS
+	} // Legacy fog path.
 
 	if (custom_fog.a > 0.0) {
 		frag_color.rgb = mix(frag_color.rgb, custom_fog.rgb, custom_fog.a);

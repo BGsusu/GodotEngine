@@ -166,7 +166,7 @@ class PhysicalSkyMaterial : public Material {
 
 private:
 	static Mutex shader_mutex;
-	static RID shader_cache[4];
+	static RID shader_cache[8];
 
 	RID get_shader_cache() const;
 
@@ -181,7 +181,26 @@ private:
 	float energy_multiplier = 1.0f;
 	bool use_debanding = true;
 	Ref<Texture2D> night_sky;
-	static void _update_shader(bool p_use_debanding, bool p_use_night_sky);
+	static void _update_shader(bool p_use_debanding, bool p_use_night_sky, bool p_atmosphere_enabled);
+	bool atmosphere_enabled = false;
+	float atmosphere_altitude = 0.0f;
+	float atmosphere_planet_radius = 6360000.0f;
+	float atmosphere_height = 100000.0f;
+	float atmosphere_ozone_strength = 1.0f;
+	float rayleigh_scale_height = 8000.0f;
+	float mie_scale_height = 1200.0f;
+	float mie_single_scattering_albedo = 0.9f;
+	Vector3 atmosphere_sun_direction = Vector3(0, 1, 0);
+	Color atmosphere_sun_color = Color(1, 1, 1);
+	float atmosphere_sun_energy = 20.0f;
+	Color atmosphere_night_color = Color(0.002, 0.004, 0.008);
+	mutable bool atmosphere_lut_dirty = true;
+	mutable bool atmosphere_lut_queued = false;
+	mutable Ref<Texture2D> atmosphere_lut;
+	void _mark_atmosphere_dirty();
+	void _update_atmosphere_lut() const;
+	void _get_atmosphere_coefficients(Color &r_rayleigh, Color &r_mie_scattering, Color &r_mie_extinction) const;
+	Color _sample_transmittance(double p_mu, double p_altitude) const;
 	mutable bool shader_set = false;
 
 protected:
@@ -189,6 +208,45 @@ protected:
 	void _validate_property(PropertyInfo &property) const;
 
 public:
+	void set_atmosphere_enabled(bool p_value);
+	bool get_atmosphere_enabled() const;
+
+	void set_atmosphere_altitude(float p_value);
+	float get_atmosphere_altitude() const;
+
+	void set_atmosphere_planet_radius(float p_value);
+	float get_atmosphere_planet_radius() const;
+
+	void set_atmosphere_ozone_strength(float p_value);
+	float get_atmosphere_ozone_strength() const;
+
+	void set_atmosphere_height(float p_value);
+	float get_atmosphere_height() const;
+
+	void set_rayleigh_scale_height(float p_value);
+	float get_rayleigh_scale_height() const;
+
+	void set_mie_scale_height(float p_value);
+	float get_mie_scale_height() const;
+
+	void set_mie_single_scattering_albedo(float p_value);
+	float get_mie_single_scattering_albedo() const;
+
+	void set_atmosphere_sun_direction(Vector3 p_value);
+	Vector3 get_atmosphere_sun_direction() const;
+
+	void set_atmosphere_sun_color(Color p_value);
+	Color get_atmosphere_sun_color() const;
+
+	void set_atmosphere_sun_energy(float p_value);
+	float get_atmosphere_sun_energy() const;
+
+	void set_atmosphere_night_color(Color p_value);
+	Color get_atmosphere_night_color() const;
+
+	Color sample_sun_transmittance(Vector3 p_sun_direction, float p_altitude = 0.0f) const;
+	Color sample_sky_radiance(Vector3 p_view_direction, Vector3 p_sun_direction, float p_altitude = 0.0f) const;
+
 	void set_rayleigh_coefficient(float p_rayleigh);
 	float get_rayleigh_coefficient() const;
 
